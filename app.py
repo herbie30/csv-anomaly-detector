@@ -18,7 +18,7 @@ if uploaded_files and len(uploaded_files) > 8:
 # Dropdown menu for selecting anomaly detection method
 anomaly_method = st.selectbox(
     "Select anomaly detection method",
-    ["empty data", "Duplicate Rows", "Outliers (Z-score)", "Custom Anomaly"]
+    ["completed", "ingate", "Outgate", "in progress"]
 )
 
 # Define anomaly detection functions
