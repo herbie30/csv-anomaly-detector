@@ -15,10 +15,11 @@ if uploaded_files and len(uploaded_files) > 8:
     st.error("Please upload a maximum of 8 files.")
     uploaded_files = uploaded_files[:8]
 
-# Dropdown menu for selecting anomaly detection method
-anomaly_method = st.selectbox(
-    "Select anomaly detection method",
-    ["empty data", "Duplicate Rows", "Outliers (Z-score)", "Custom Anomaly"]
+# Multi-select menu for selecting anomaly detection methods
+anomaly_methods = st.multiselect(
+    "Select anomaly detection methods",
+    ["Missing Values", "Duplicate Rows", "Outliers (Z-score)", "Custom Anomaly"],
+    default=["Missing Values"]  # Default selection
 )
 
 # Define anomaly detection functions
@@ -60,32 +61,47 @@ if uploaded_files:
         st.write("Preview (first 5 rows):")
         st.dataframe(df.head())
 
-        st.write("Anomaly Detection Results:")
-        if anomaly_method == "Missing Values":
-            missing = detect_missing_values(df)
-            if missing.empty:
-                st.write("No missing values detected.")
-            else:
-                st.write("Missing values detected (count per column):")
-                st.write(missing)
-        elif anomaly_method == "Duplicate Rows":
-            duplicates = detect_duplicate_rows(df)
-            if duplicates.empty:
-                st.write("No duplicate rows detected.")
-            else:
-                st.write("Duplicate rows found:")
-                st.dataframe(duplicates)
-        elif anomaly_method == "Outliers (Z-score)":
-            outliers = detect_outliers_zscore(df)
-            if outliers.empty:
-                st.write("No outliers detected.")
-            else:
-                st.write("Outliers detected based on z-score analysis:")
-                st.dataframe(outliers)
-        elif anomaly_method == "Custom Anomaly":
-            anomalies = detect_custom_anomaly(df)
-            if anomalies.empty:
-                st.write("No custom anomalies detected.")
-            else:
-                st.write("Custom anomalies detected (rows with negative numeric values):")
-                st.dataframe(anomalies)
+        if not anomaly_methods:
+            st.warning("Please select at least one anomaly detection method.")
+        else:
+            st.write("Anomaly Detection Results:")
+            
+            # Process each selected method
+            for method in anomaly_methods:
+                st.write(f"### {method}")
+                
+                if method == "Missing Values":
+                    missing = detect_missing_values(df)
+                    if missing.empty:
+                        st.write("No missing values detected.")
+                    else:
+                        st.write("Missing values detected (count per column):")
+                        st.write(missing)
+                
+                elif method == "Duplicate Rows":
+                    duplicates = detect_duplicate_rows(df)
+                    if duplicates.empty:
+                        st.write("No duplicate rows detected.")
+                    else:
+                        st.write("Duplicate rows found:")
+                        st.dataframe(duplicates)
+                
+                elif method == "Outliers (Z-score)":
+                    outliers = detect_outliers_zscore(df)
+                    if outliers.empty:
+                        st.write("No outliers detected.")
+                    else:
+                        st.write("Outliers detected based on z-score analysis:")
+                        st.dataframe(outliers)
+                
+                elif method == "Custom Anomaly":
+                    anomalies = detect_custom_anomaly(df)
+                    if anomalies.empty:
+                        st.write("No custom anomalies detected.")
+                    else:
+                        st.write("Custom anomalies detected (rows with negative numeric values):")
+                        st.dataframe(anomalies)
+                
+                # Add a separator between methods
+                if method != anomaly_methods[-1]:
+                    st.markdown("---")
