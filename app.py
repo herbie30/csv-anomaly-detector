@@ -5,9 +5,9 @@ from scipy import stats
 
 # App title and instructions
 st.title("CSV Anomaly Detector")
-st.write("Upload up to 8 CSV files, select an anomaly detection method, and preview the results.")
+st.write("Upload up to 8 CSV files, select anomaly detection methods, and preview the results.")
 
-# File uploader allowing multiple files (limit to CSV)
+# CSV uploader allowing multiple files (limit to CSV)
 uploaded_files = st.file_uploader("Upload CSV files (max 8)", type="csv", accept_multiple_files=True)
 
 # Limit to 8 files if more are uploaded
@@ -50,12 +50,12 @@ def detect_custom_anomaly(df):
 
 # Process each uploaded file
 if uploaded_files:
-    for file in uploaded_files:
-        st.subheader(f"File: {file.name}")
+    for uploaded_file in uploaded_files:
+        st.subheader(f"File: {uploaded_file.name}")
         try:
-            df = pd.read_csv(file)
+            df = pd.read_csv(uploaded_file)
         except Exception as e:
-            st.error(f"Error reading {file.name}: {e}")
+            st.error(f"Error reading {uploaded_file.name}: {e}")
             continue
 
         st.write("Preview (first 5 rows):")
