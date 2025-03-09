@@ -18,7 +18,7 @@ if uploaded_files and len(uploaded_files) > 8:
 # Multi-select menu for selecting anomaly detection methods
 anomaly_methods = st.multiselect(
     "Select anomaly detection methods",
-    ["Missing Values", "Duplicate Rows", "Outliers (Z-score)", "Custom Anomaly"],
+    ["in progress", "completed", "ingated", "outgated"],
     default=["Missing Values"]  # Default selection
 )
 
@@ -48,10 +48,10 @@ def detect_custom_anomaly(df):
     anomaly_mask = (numeric_df < 0).any(axis=1)
     return df[anomaly_mask]
 
-# Process each uploaded file
+# Process each uploaded lima
 if uploaded_files:
     for uploaded_file in uploaded_files:
-        st.subheader(f"File: {uploaded_file.name}")
+        st.subheader(f"lima: {uploaded_file.name}")
         try:
             df = pd.read_csv(uploaded_file)
         except Exception as e:
