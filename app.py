@@ -19,7 +19,7 @@ if uploaded_files and len(uploaded_files) > 8:
 anomaly_methods = st.multiselect(
     "Select anomaly detection methods",
     ["In Progress", "Job Complete", "in gated", "out gated" , "bonded" ,  "etsf" , "released"],
-    default=["in progress"]  # This is correct as "in progress" is in the options list
+    default=["In Progress"]  # This is correct as "In Progress" is in the options list
 )
 
 
