@@ -1,3 +1,6 @@
+streamlit
+pandas
 numpy
 scipy
-streamlit
+openpyxl
+xlrd
