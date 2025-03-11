@@ -137,7 +137,7 @@ def read_file(file):
 
 # Process each uploaded file
 if uploaded_files:
-    for uploaded_file in uploaded_files:
+    for file_index, uploaded_file in enumerate(uploaded_files):
         st.subheader(f"File: {uploaded_file.name}")
         try:
             # Read the file based on its extension
@@ -166,11 +166,16 @@ if uploaded_files:
                 st.write(f"Container number column identified: '{container_col}'")
             else:
                 st.warning("No container number column detected. Please enter the column name:")
-                container_col = st.text_input("Container number column name:", "container_number")
+                container_col = st.text_input(f"Container number column name for {uploaded_file.name}:", "container_number", key=f"container_col_{file_index}")
             
             # Display a preview with option to see more
-            with st.expander("Preview data"):
-                preview_rows = st.slider("Number of rows to preview", 5, 100, 5)
+            with st.expander(f"Preview data - {uploaded_file.name}"):
+                # Use a unique key for each slider
+                preview_rows = st.slider(
+                    "Number of rows to preview", 
+                    5, 100, 5, 
+                    key=f"preview_slider_{file_index}"
+                )
                 st.dataframe(df.head(preview_rows))
             
         except Exception as e:
@@ -186,7 +191,8 @@ if uploaded_files:
             all_anomalies = {}
             
             # Process each selected method
-            for method in anomaly_methods:
+            for method_index, method in enumerate(anomaly_methods):
+                method_key = f"{file_index}_{method_index}"
                 st.write(f"### {method}")
                 
                 # Filter data based on the selected status if column exists
@@ -215,9 +221,10 @@ if uploaded_files:
                 }
                 
                 # Display results in tables
-                for anomaly_type, anomaly_df in method_anomalies.items():
+                for anomaly_type_index, (anomaly_type, anomaly_df) in enumerate(method_anomalies.items()):
+                    anomaly_key = f"{method_key}_{anomaly_type_index}"
                     if not anomaly_df.empty:
-                        with st.expander(f"{anomaly_type} ({len(anomaly_df)} containers)"):
+                        with st.expander(f"{anomaly_type} ({len(anomaly_df)} containers) - {method}"):
                             st.write(f"Found {len(anomaly_df)} containers with {anomaly_type.lower()}:")
                             
                             # Create a simplified view for the table with focus on container numbers
@@ -238,8 +245,11 @@ if uploaded_files:
                                 # Display the simplified table
                                 st.dataframe(anomaly_df[display_cols])
                                 
-                                # Option to view full details
-                                if st.button(f"View full details for {anomaly_type}", key=f"{method}_{anomaly_type}"):
+                                # Option to view full details - unique key for each button
+                                if st.button(
+                                    f"View full details for {anomaly_type}", 
+                                    key=f"view_details_{anomaly_key}"
+                                ):
                                     st.dataframe(anomaly_df)
                             else:
                                 # If container column not found, show all data
@@ -292,10 +302,11 @@ if uploaded_files:
                 # Allow file download of the summary
                 csv = summary_df.to_csv(index=False)
                 st.download_button(
-                    label="Download Container Anomaly Summary",
+                    label=f"Download Container Anomaly Summary - {uploaded_file.name}",
                     data=csv,
-                    file_name="container_anomaly_summary.csv",
-                    mime="text/csv"
+                    file_name=f"container_anomaly_summary_{uploaded_file.name.split('.')[0]}.csv",
+                    mime="text/csv",
+                    key=f"download_button_{file_index}"
                 )
             else:
                 st.write("No container anomalies detected.")
