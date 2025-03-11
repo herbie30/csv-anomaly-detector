@@ -4,11 +4,11 @@ import numpy as np
 from scipy import stats
 
 # App title and instructions
-st.title("CSV Anomaly Detector")
-st.write("Upload up to 8 CSV files, select anomaly detection methods, and view container anomalies in order.")
+st.title("File Anomaly Detector")
+st.write("Upload up to 8 CSV or Excel files, select anomaly detection methods, and view container anomalies in order.")
 
-# CSV uploader allowing multiple files (limit to CSV)
-uploaded_files = st.file_uploader("Upload CSV files (max 8)", type="csv", accept_multiple_files=True)
+# File uploader allowing multiple files (CSV and Excel)
+uploaded_files = st.file_uploader("Upload CSV or Excel files (max 8)", type=["csv", "xlsx", "xls"], accept_multiple_files=True)
 
 # Limit to 8 files if more are uploaded
 if uploaded_files and len(uploaded_files) > 8:
@@ -107,13 +107,25 @@ def detect_custom_anomaly(df, container_col='container_number'):
     
     return anomalies
 
+# Function to read file based on its extension
+def read_file(file):
+    """Read a file based on its extension (CSV or Excel)."""
+    file_name = file.name.lower()
+    
+    if file_name.endswith('.csv'):
+        return pd.read_csv(file)
+    elif file_name.endswith(('.xlsx', '.xls')):
+        return pd.read_excel(file)
+    else:
+        raise ValueError(f"Unsupported file format: {file_name}")
+
 # Process each uploaded file
 if uploaded_files:
     for uploaded_file in uploaded_files:
         st.subheader(f"File: {uploaded_file.name}")
         try:
-            # Read the entire CSV file
-            df = pd.read_csv(uploaded_file)
+            # Read the file based on its extension
+            df = read_file(uploaded_file)
             
             # Display file information
             st.write(f"Total rows: {len(df)}")
@@ -261,7 +273,7 @@ if uploaded_files:
                 st.write(f"Found {len(summary_df)} containers with anomalies:")
                 st.dataframe(summary_df)
                 
-                # Allow CSV download of the summary
+                # Allow file download of the summary
                 csv = summary_df.to_csv(index=False)
                 st.download_button(
                     label="Download Container Anomaly Summary",
@@ -271,3 +283,12 @@ if uploaded_files:
                 )
             else:
                 st.write("No container anomalies detected.")
+  
+   
+   
+
+  
+            
+            
+           
+                
