@@ -2,6 +2,20 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy import stats
+import os
+import sys
+
+# Check and install openpyxl if not present
+try:
+    import openpyxl
+except ImportError:
+    st.warning("Installing required dependency 'openpyxl'...")
+    os.system(f"{sys.executable} -m pip install openpyxl")
+    try:
+        import openpyxl
+        st.success("Successfully installed openpyxl!")
+    except ImportError:
+        st.error("Failed to install openpyxl. Please run 'pip install openpyxl' in your environment.")
 
 # App title and instructions
 st.title("File Anomaly Detector")
@@ -114,8 +128,10 @@ def read_file(file):
     
     if file_name.endswith('.csv'):
         return pd.read_csv(file)
-    elif file_name.endswith(('.xlsx', '.xls')):
-        return pd.read_excel(file)
+    elif file_name.endswith('.xlsx'):
+        return pd.read_excel(file, engine='openpyxl')
+    elif file_name.endswith('.xls'):
+        return pd.read_excel(file, engine='xlrd')
     else:
         raise ValueError(f"Unsupported file format: {file_name}")
 
@@ -283,12 +299,3 @@ if uploaded_files:
                 )
             else:
                 st.write("No container anomalies detected.")
-  
-   
-   
-
-  
-            
-            
-           
-                
