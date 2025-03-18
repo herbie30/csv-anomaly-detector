@@ -304,4 +304,109 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
     if results_df.empty:
         st.info("No mismatches found based on the specified criteria.")
         empty_df = pd.DataFrame(columns=['CONTAINER NUMBER', 'CYMAN', 'TOPS'])
-        output_
+        output_buffer = io.BytesIO()
+        empty_df.to_excel(output_buffer, index=False)
+        output_buffer.seek(0)
+        
+        csv_buffer = io.StringIO()
+        empty_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        return output_buffer, empty_df, csv_buffer
+
+    # Write results to an in-memory Excel file
+    output_buffer = io.BytesIO()
+    results_df.to_excel(output_buffer, index=False)
+    output_buffer.seek(0)
+
+    try:
+        wb = openpyxl.load_workbook(output_buffer)
+    except Exception as e:
+        st.error(f"Error processing workbook: {e}")
+        return None, None, None
+
+    format_excel_workbook(wb, len(results_df))
+
+    final_buffer = io.BytesIO()
+    wb.save(final_buffer)
+    final_buffer.seek(0)
+
+    csv_buffer = io.StringIO()
+    results_df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+
+    st.success("Comparison complete!")
+    return final_buffer, results_df, csv_buffer
+
+def main():
+    st.title("Container Spreadsheet Comparison Tool")
+
+    # Upload file widgets
+    tops_file = st.file_uploader("Upload TOPS spreadsheet", type=["xlsx", "xls"])
+    cyman_file = st.file_uploader("Upload Cyman spreadsheet", type=["xlsx", "xls"])
+
+    # Text inputs for container column names (optional)
+    tops_col = st.text_input("TOPS container column name (leave blank for auto-detection)")
+    if tops_col.strip() == "":
+        tops_col = None
+
+    cyman_col = st.text_input("Cyman container column name (leave blank for auto-detection)")
+    if cyman_col.strip() == "":
+        cyman_col = None
+        
+    # Option to check for single boxes
+    check_single_boxes = st.checkbox("Check for single boxes across both yards")
+    
+    # Output format selection
+    output_format = st.radio("Select output format:", ["View on screen", "Download as Excel", "Download as CSV"])
+
+    if st.button("Run Comparison"):
+        if not tops_file or not cyman_file:
+            st.error("Please upload both TOPS and Cyman spreadsheets.")
+        else:
+            excel_buffer, result_df, csv_buffer = compare_container_spreadsheets(
+                tops_file, cyman_file, tops_col, cyman_col, check_single_boxes
+            )
+            
+            if excel_buffer is not None and result_df is not None and csv_buffer is not None:
+                if output_format == "View on screen":
+                    st.subheader("Container Number Comparison Report")
+                    st.caption("Note: TOPS 'Container Number' = Cyman 'Unit No'")
+                    st.caption(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    display_df = format_for_display(result_df)
+                    
+                    st.markdown("""
+                    <style>
+                    .dataframe th {
+                        background-color: #1F4E78;
+                        color: white;
+                        text-align: center;
+                    }
+                    .dataframe td {
+                        text-align: center;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    st.dataframe(display_df)
+                    st.write(f"Total mismatches found: {len(result_df)}")
+                    
+                elif output_format == "Download as Excel":
+                    st.download_button(
+                        label="Download Comparison Report (Excel)",
+                        data=excel_buffer,
+                        file_name="container_comparison_report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    
+                elif output_format == "Download as CSV":
+                    st.download_button(
+                        label="Download Comparison Report (CSV)",
+                        data=csv_buffer.getvalue(),
+                        file_name="container_comparison_report.csv",
+                        mime="text/csv"
+                    )
+
+if __name__ == "__main__":
+    main()
