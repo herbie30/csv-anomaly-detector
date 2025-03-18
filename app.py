@@ -237,4 +237,71 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         cyman_df[cyman_container_col] = cyman_df[cyman_container_col].astype(str).str.strip()
         
         # Filter TOPS data to only include "Complete" or "In Progress" in Status Name column
-       
+        # And only include "James Kemball Holding Centre" in Unload Location column
+        if tops_status_col:
+            tops_df = tops_df[tops_df[tops_status_col].astype(str).str.lower().isin(['complete', 'in progress'])]
+        
+        if tops_location_col:
+            tops_df = tops_df[tops_df[tops_location_col].astype(str).str.lower() == 'james kemball holding centre']
+        
+        # Create dictionaries for faster lookups
+        tops_containers = set(tops_df[tops_container_col])
+        cyman_containers = set(cyman_df[cyman_container_col])
+        
+        tops_data = {row[tops_container_col]: row for _, row in tops_df.iterrows()}
+        cyman_data = {row[cyman_container_col]: row for _, row in cyman_df.iterrows()}
+    except KeyError as e:
+        st.error(f"Error: Column not found - {e}")
+        return None, None, None
+
+    # Process containers based on the enhanced requirements
+    results = []
+    
+    # Process containers in TOPS but not in Cyman
+    for container in tops_containers - cyman_containers:
+        results.append({
+            'CONTAINER NUMBER': container,
+            'CYMAN': 'Missing',
+            'TOPS': 'Present'
+        })
+    
+    # Process containers in Cyman but not in TOPS
+    for container in cyman_containers - tops_containers:
+        results.append({
+            'CONTAINER NUMBER': container,
+            'CYMAN': 'Present',
+            'TOPS': 'Missing'
+        })
+    
+    # Check for single boxes across both yards if option is selected
+    if check_single_boxes:
+        all_containers = list(tops_containers) + list(cyman_containers)
+        from collections import Counter
+        container_counts = Counter(all_containers)
+        single_boxes = [container for container, count in container_counts.items() if count == 1]
+        
+        for container in single_boxes:
+            if container not in tops_containers and container not in cyman_containers:
+                if container in tops_containers:
+                    results.append({
+                        'CONTAINER NUMBER': container,
+                        'CYMAN': 'Missing',
+                        'TOPS': 'Present'
+                    })
+                else:
+                    results.append({
+                        'CONTAINER NUMBER': container,
+                        'CYMAN': 'Present',
+                        'TOPS': 'Missing'
+                    })
+    
+    # Sort the results alphabetically by container number
+    results.sort(key=lambda x: x['CONTAINER NUMBER'])
+    
+    # Create DataFrame from results
+    results_df = pd.DataFrame(results)
+    
+    if results_df.empty:
+        st.info("No mismatches found based on the specified criteria.")
+        empty_df = pd.DataFrame(columns=['CONTAINER NUMBER', 'CYMAN', 'TOPS'])
+        output_
