@@ -7,8 +7,6 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime
 import io
 import csv
-from collections import Counter
-import re
 
 def identify_container_column(df):
     """
@@ -176,26 +174,11 @@ def format_for_display(results_df):
 
 def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=None, cyman_container_col=None, check_single_boxes=False):
     """
-    Compare container numbers between TOPS and Cyman spreadsheets using the following prompt logic:
-    
-    Input Files:
-      - TOPS: Focus on columns A (Status Name), H (Container Number), and O (Unload Location)
-      - CYMAN: Focus on columns E (In Activity) and G (Unit No.)
-    
-    Filter Data:
-      - TOPS: Keep only rows where Unload Location (Column O) contains "JAMES KEMBALL HOLDING CENTER"
-              (case-insensitive; allow minor typos via a contains check)
-      - CYMAN: Keep all rows
-    
-    Comparison Logic:
-      For each row in the filtered TOPS data, check if the Container Number (Column H) exists in CYMAN’s Unit No. (Column G).
-      If it DOES NOT match, retain the row.
-    
-    Output:
-      Return a table with two columns:
-        - TOPS
-        - Cyman
-      The table lists the container numbers in alphabetical order.
+    Compare container numbers between TOPS and Cyman spreadsheets with enhanced logic.
+    Returns a tuple containing:
+    - BytesIO for Excel output
+    - DataFrame for display
+    - StringIO for CSV output
     """
     # Load spreadsheets
     try:
@@ -205,69 +188,131 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         st.error(f"Error loading spreadsheets: {e}")
         return None, None, None
 
-    # Subset required columns based on prompt instructions
-    # TOPS: Columns A (Status Name), H (Container Number), O (Unload Location)
-    tops_required = ["Status Name", "Container Number", "Unload Location"]
-    if not all(col in tops_df.columns for col in tops_required):
-        st.error("TOPS file missing one or more required columns: " + ", ".join(tops_required))
-        return None, None, None
-    tops_df = tops_df[tops_required]
-
-    # CYMAN: Columns E (In Activity) and G (Unit No.)
-    cyman_required = ["In Activity", "Unit No."]
-    if not all(col in cyman_df.columns for col in cyman_required):
-        st.error("CYMAN file missing one or more required columns: " + ", ".join(cyman_required))
-        return None, None, None
-    cyman_df = cyman_df[cyman_required]
-
-    # Filter TOPS data:
-    # Keep only rows where Unload Location (Column O) contains "JAMES KEMBALL HOLDING CENTER"
-    # Using a simpler contains check to allow minor typos
-    tops_df_filtered = tops_df[tops_df["Unload Location"].astype(str).str.strip().str.upper().str.contains("JAMES KEMBALL HOLDING", na=False)]
+    # Identify columns in both spreadsheets
+    tops_columns = identify_columns(tops_df, 'TOPS')
+    cyman_columns = identify_columns(cyman_df, 'Cyman')
     
-    if tops_df_filtered.empty:
-        st.info("No TOPS rows meet the Unload Location criteria.")
-        empty_df = pd.DataFrame(columns=["TOPS", "Cyman"])
-        output_buffer = io.BytesIO()
-        empty_df.to_excel(output_buffer, index=False)
-        output_buffer.seek(0)
-        csv_buffer = io.StringIO()
-        empty_df.to_csv(csv_buffer, index=False)
-        csv_buffer.seek(0)
-        return output_buffer, empty_df, csv_buffer
+    # Auto-detect container columns if not provided
+    if tops_container_col is None:
+        tops_container_col = tops_columns.get('container_col')
+        if tops_container_col:
+            st.write(f"TOPS container column detected: {tops_container_col}")
+        else:
+            st.error("Could not automatically detect container number column in TOPS. Available columns:")
+            st.write(list(tops_df.columns))
+            return None, None, None
 
-    # Normalize the container numbers (TOPS) and unit numbers (CYMAN)
-    tops_df_filtered["Container Number"] = tops_df_filtered["Container Number"].astype(str).str.strip().str.upper()
-    cyman_df["Unit No."] = cyman_df["Unit No."].astype(str).str.strip().str.upper()
+    if cyman_container_col is None:
+        cyman_container_col = cyman_columns.get('container_col')
+        if cyman_container_col:
+            st.write(f"Cyman container column detected: {cyman_container_col}")
+        else:
+            st.error("Could not automatically detect container number column in Cyman. Available columns:")
+            st.write(list(cyman_df.columns))
+            return None, None, None
+            
+    # Initialize columns for status and location/activity
+    tops_status_col = tops_columns.get('status_col', None)
+    tops_location_col = tops_columns.get('location_col', None)
+    cyman_activity_col = cyman_columns.get('activity_col', None)
+    
+    # If we couldn't detect columns automatically, look for them by position based on the sample data
+    if tops_status_col is None and len(tops_df.columns) >= 1:
+        tops_status_col = tops_df.columns[0]  # First column in TOPS sample
+        st.write(f"Using first column as TOPS status: {tops_status_col}")
+    
+    if tops_location_col is None and len(tops_df.columns) >= 3:
+        tops_location_col = tops_df.columns[2]  # Third column in TOPS sample
+        st.write(f"Using third column as TOPS location: {tops_location_col}")
+    
+    if cyman_activity_col is None and len(cyman_df.columns) >= 6:
+        cyman_activity_col = cyman_df.columns[5]  # Sixth column in Cyman sample
+        st.write(f"Using sixth column as Cyman activity: {cyman_activity_col}")
 
-    # Create a set of CYMAN Unit No. values for quick lookup
-    cyman_units = set(cyman_df["Unit No."].tolist())
+    try:
+        # Convert container columns to strings and strip whitespace
+        tops_df[tops_container_col] = tops_df[tops_container_col].astype(str).str.strip()
+        cyman_df[cyman_container_col] = cyman_df[cyman_container_col].astype(str).str.strip()
+        
+        # Filter TOPS data to only include "Complete" or "In Progress" in Status Name column
+        # And only include "James Kemball Holding Centre" in Unload Location column
+        if tops_status_col:
+            tops_df = tops_df[tops_df[tops_status_col].astype(str).str.lower().isin(['complete', 'in progress'])]
+        
+        if tops_location_col:
+            tops_df = tops_df[tops_df[tops_location_col].astype(str).str.lower() == 'james kemball holding centre']
+        
+        # Create dictionaries for faster lookups
+        tops_containers = set(tops_df[tops_container_col])
+        cyman_containers = set(cyman_df[cyman_container_col])
+        
+        tops_data = {row[tops_container_col]: row for _, row in tops_df.iterrows()}
+        cyman_data = {row[cyman_container_col]: row for _, row in cyman_df.iterrows()}
+    except KeyError as e:
+        st.error(f"Error: Column not found - {e}")
+        return None, None, None
 
-    # Compare each TOPS row: if the Container Number does NOT exist in CYMAN, retain the row.
+    # Process containers based on the enhanced requirements
     results = []
-    for idx, row in tops_df_filtered.iterrows():
-        container = row["Container Number"]
-        if container not in cyman_units:
-            results.append({
-                "TOPS": container,
-                "Cyman": "Not Found"
-            })
-
-    # Sort the results alphabetically by the TOPS container number
-    results = sorted(results, key=lambda x: x["TOPS"])
-
-    # Create DataFrame from results with only two columns: TOPS and Cyman
-    results_df = pd.DataFrame(results, columns=["TOPS", "Cyman"])
+    
+    # Process containers in TOPS but not in Cyman
+    for container in tops_containers - cyman_containers:
+        results.append({
+            'CONTAINER NUMBER': container,
+            'CYMAN': 'Missing',
+            'TOPS': 'Present'
+        })
+    
+    # Process containers in Cyman but not in TOPS
+    for container in cyman_containers - tops_containers:
+        results.append({
+            'CONTAINER NUMBER': container,
+            'CYMAN': 'Present',
+            'TOPS': 'Missing'
+        })
+    
+    # Check for single boxes across both yards if option is selected
+    if check_single_boxes:
+        # Add logic to find containers that occur only once across both systems
+        # This is a simple implementation looking for unique container identifiers
+        all_containers = list(tops_containers) + list(cyman_containers)
+        from collections import Counter
+        container_counts = Counter(all_containers)
+        single_boxes = [container for container, count in container_counts.items() if count == 1]
+        
+        for container in single_boxes:
+            # Check if it's not already in our results (which would mean it's missing from one system)
+            if container not in tops_containers and container not in cyman_containers:
+                if container in tops_containers:
+                    results.append({
+                        'CONTAINER NUMBER': container,
+                        'CYMAN': 'Missing',
+                        'TOPS': 'Present'
+                    })
+                else:
+                    results.append({
+                        'CONTAINER NUMBER': container,
+                        'CYMAN': 'Present',
+                        'TOPS': 'Missing'
+                    })
+    
+    # Sort the results alphabetically by container number
+    results.sort(key=lambda x: x['CONTAINER NUMBER'])
+    
+    # Create DataFrame from results
+    results_df = pd.DataFrame(results)
     
     if results_df.empty:
-        st.info("All filtered TOPS container numbers have matching entries in CYMAN.")
-        empty_df = pd.DataFrame(columns=["TOPS", "Cyman"])
+        st.info("No mismatches found based on the specified criteria.")
+        empty_df = pd.DataFrame(columns=['CONTAINER NUMBER', 'CYMAN', 'TOPS'])
         output_buffer = io.BytesIO()
         empty_df.to_excel(output_buffer, index=False)
         output_buffer.seek(0)
+        
         csv_buffer = io.StringIO()
         empty_df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
+        
         return output_buffer, empty_df, csv_buffer
 
     # Write results to an in-memory Excel file
@@ -275,27 +320,41 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
     results_df.to_excel(output_buffer, index=False)
     output_buffer.seek(0)
 
+    # Load workbook from the BytesIO buffer
+    try:
+        wb = openpyxl.load_workbook(output_buffer)
+    except Exception as e:
+        st.error(f"Error processing workbook: {e}")
+        return None, None, None
+
+    # Apply formatting
+    format_excel_workbook(wb, len(results_df))
+
+    final_buffer = io.BytesIO()
+    wb.save(final_buffer)
+    final_buffer.seek(0)
+
     # Create CSV buffer
     csv_buffer = io.StringIO()
     results_df.to_csv(csv_buffer, index=False)
     csv_buffer.seek(0)
 
     st.success("Comparison complete!")
-    return output_buffer, results_df, csv_buffer
+    return final_buffer, results_df, csv_buffer
 
 def main():
     st.title("Container Spreadsheet Comparison Tool")
 
     # Upload file widgets
     tops_file = st.file_uploader("Upload TOPS spreadsheet", type=["xlsx", "xls"])
-    cyman_file = st.file_uploader("Upload CYMAN spreadsheet", type=["xlsx", "xls"])
+    cyman_file = st.file_uploader("Upload Cyman spreadsheet", type=["xlsx", "xls"])
 
     # Text inputs for container column names (optional)
     tops_col = st.text_input("TOPS container column name (leave blank for auto-detection)")
     if tops_col.strip() == "":
         tops_col = None
 
-    cyman_col = st.text_input("CYMAN container column name (leave blank for auto-detection)")
+    cyman_col = st.text_input("Cyman container column name (leave blank for auto-detection)")
     if cyman_col.strip() == "":
         cyman_col = None
         
@@ -307,22 +366,24 @@ def main():
 
     if st.button("Run Comparison"):
         if not tops_file or not cyman_file:
-            st.error("Please upload both TOPS and CYMAN spreadsheets.")
+            st.error("Please upload both TOPS and Cyman spreadsheets.")
         else:
+            # Fixed the return value unpacking
             excel_buffer, result_df, csv_buffer = compare_container_spreadsheets(
                 tops_file, cyman_file, tops_col, cyman_col, check_single_boxes
             )
             
             if excel_buffer is not None and result_df is not None and csv_buffer is not None:
                 if output_format == "View on screen":
-                    st.subheader("Container Comparison Report")
-                    st.caption("Results based on prompt instructions:")
-                    st.caption("TOPS: Columns A (Status Name), H (Container Number), O (Unload Location)")
-                    st.caption("CYMAN: Columns E (In Activity), G (Unit No.)")
+                    # Display results on screen with the same formatting as the Excel/CSV
+                    st.subheader("Container Number Comparison Report")
+                    st.caption("Note: TOPS 'Container Number' = Cyman 'Unit No'")
                     st.caption(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     
+                    # Format the dataframe for display
                     display_df = format_for_display(result_df)
                     
+                    # Use CSS to style the dataframe similar to the Excel output
                     st.markdown("""
                     <style>
                     .dataframe th {
@@ -357,3 +418,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+Version 2 of 2
+
