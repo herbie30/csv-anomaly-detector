@@ -175,7 +175,10 @@ def format_for_display(results_df):
 def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=None, cyman_container_col=None, check_single_boxes=False):
     """
     Compare container numbers between TOPS and Cyman spreadsheets with enhanced logic.
-    Returns a BytesIO stream with the output Excel file and a DataFrame for display.
+    Returns a tuple containing:
+    - BytesIO for Excel output
+    - DataFrame for display
+    - StringIO for CSV output
     """
     # Load spreadsheets
     try:
@@ -183,7 +186,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         cyman_df = pd.read_excel(cyman_file)
     except Exception as e:
         st.error(f"Error loading spreadsheets: {e}")
-        return None, None
+        return None, None, None
 
     # Identify columns in both spreadsheets
     tops_columns = identify_columns(tops_df, 'TOPS')
@@ -197,7 +200,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         else:
             st.error("Could not automatically detect container number column in TOPS. Available columns:")
             st.write(list(tops_df.columns))
-            return None, None
+            return None, None, None
 
     if cyman_container_col is None:
         cyman_container_col = cyman_columns.get('container_col')
@@ -206,7 +209,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         else:
             st.error("Could not automatically detect container number column in Cyman. Available columns:")
             st.write(list(cyman_df.columns))
-            return None, None
+            return None, None, None
             
     # Initialize columns for status and location/activity
     tops_status_col = tops_columns.get('status_col', None)
@@ -247,7 +250,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         cyman_data = {row[cyman_container_col]: row for _, row in cyman_df.iterrows()}
     except KeyError as e:
         st.error(f"Error: Column not found - {e}")
-        return None, None
+        return None, None, None
 
     # Process containers based on the enhanced requirements
     results = []
@@ -299,13 +302,18 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
     # Create DataFrame from results
     results_df = pd.DataFrame(results)
     
-    if not results:
+    if results_df.empty:
         st.info("No mismatches found based on the specified criteria.")
         empty_df = pd.DataFrame(columns=['CONTAINER NUMBER', 'CYMAN', 'TOPS'])
         output_buffer = io.BytesIO()
         empty_df.to_excel(output_buffer, index=False)
         output_buffer.seek(0)
-        return output_buffer, empty_df
+        
+        csv_buffer = io.StringIO()
+        empty_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        return output_buffer, empty_df, csv_buffer
 
     # Write results to an in-memory Excel file
     output_buffer = io.BytesIO()
@@ -317,7 +325,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         wb = openpyxl.load_workbook(output_buffer)
     except Exception as e:
         st.error(f"Error processing workbook: {e}")
-        return None, None
+        return None, None, None
 
     # Apply formatting
     format_excel_workbook(wb, len(results_df))
@@ -360,11 +368,12 @@ def main():
         if not tops_file or not cyman_file:
             st.error("Please upload both TOPS and Cyman spreadsheets.")
         else:
-            result_buffer, result_df, csv_buffer = compare_container_spreadsheets(
+            # Fixed the return value unpacking
+            excel_buffer, result_df, csv_buffer = compare_container_spreadsheets(
                 tops_file, cyman_file, tops_col, cyman_col, check_single_boxes
             )
             
-            if result_buffer and result_df is not None:
+            if excel_buffer is not None and result_df is not None and csv_buffer is not None:
                 if output_format == "View on screen":
                     # Display results on screen with the same formatting as the Excel/CSV
                     st.subheader("Container Number Comparison Report")
@@ -394,7 +403,7 @@ def main():
                 elif output_format == "Download as Excel":
                     st.download_button(
                         label="Download Comparison Report (Excel)",
-                        data=result_buffer,
+                        data=excel_buffer,
                         file_name="container_comparison_report.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
@@ -409,6 +418,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-Last edited 1 minute ago
-
-
