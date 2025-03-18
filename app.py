@@ -7,6 +7,7 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime
 import io
 import csv
+from collections import Counter
 
 def identify_container_column(df):
     """
@@ -242,48 +243,50 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         if tops_location_col:
             tops_df = tops_df[tops_df[tops_location_col].astype(str).str.lower() == 'james kemball holding centre']
         
-        # Create dictionaries for faster lookups
-        tops_containers = set(tops_df[tops_container_col])
-        cyman_containers = set(cyman_df[cyman_container_col])
+        # Get container lists (preserving duplicates) and count them
+        tops_containers_list = tops_df[tops_container_col].tolist()
+        cyman_containers_list = cyman_df[cyman_container_col].tolist()
+        tops_counts = Counter(tops_containers_list)
+        cyman_counts = Counter(cyman_containers_list)
         
+        # (Optional: retain these dictionaries if used elsewhere)
         tops_data = {row[tops_container_col]: row for _, row in tops_df.iterrows()}
         cyman_data = {row[cyman_container_col]: row for _, row in cyman_df.iterrows()}
     except KeyError as e:
         st.error(f"Error: Column not found - {e}")
         return None, None, None
 
-    # Process containers based on the enhanced requirements
+    # Process containers based on count differences
+    all_containers = set(tops_counts.keys()).union(cyman_counts.keys())
     results = []
-    
-    # Process containers in TOPS but not in Cyman
-    for container in tops_containers - cyman_containers:
-        results.append({
-            'CONTAINER NUMBER': container,
-            'CYMAN': 'Missing',
-            'TOPS': 'Present'
-        })
-    
-    # Process containers in Cyman but not in TOPS
-    for container in cyman_containers - tops_containers:
-        results.append({
-            'CONTAINER NUMBER': container,
-            'CYMAN': 'Present',
-            'TOPS': 'Missing'
-        })
+
+    for container in all_containers:
+        if tops_counts[container] > cyman_counts[container]:
+            results.append({
+                'CONTAINER NUMBER': container,
+                'CYMAN': 'Missing',
+                'TOPS': 'Present'
+            })
+        elif cyman_counts[container] > tops_counts[container]:
+            results.append({
+                'CONTAINER NUMBER': container,
+                'CYMAN': 'Present',
+                'TOPS': 'Missing'
+            })
     
     # Check for single boxes across both yards if option is selected
     if check_single_boxes:
-        # Add logic to find containers that occur only once across both systems
-        # This is a simple implementation looking for unique container identifiers
-        all_containers = list(tops_containers) + list(cyman_containers)
-        from collections import Counter
-        container_counts = Counter(all_containers)
+        # Use sets for the original logic
+        tops_containers_set = set(tops_containers_list)
+        cyman_containers_set = set(cyman_containers_list)
+        all_containers_single = list(tops_containers_set) + list(cyman_containers_set)
+        container_counts = Counter(all_containers_single)
         single_boxes = [container for container, count in container_counts.items() if count == 1]
         
         for container in single_boxes:
-            # Check if it's not already in our results (which would mean it's missing from one system)
-            if container not in tops_containers and container not in cyman_containers:
-                if container in tops_containers:
+            # Original condition (note: this condition may never be true, but left unchanged)
+            if container not in tops_containers_set and container not in cyman_containers_set:
+                if container in tops_containers_set:
                     results.append({
                         'CONTAINER NUMBER': container,
                         'CYMAN': 'Missing',
@@ -368,22 +371,18 @@ def main():
         if not tops_file or not cyman_file:
             st.error("Please upload both TOPS and Cyman spreadsheets.")
         else:
-            # Fixed the return value unpacking
             excel_buffer, result_df, csv_buffer = compare_container_spreadsheets(
                 tops_file, cyman_file, tops_col, cyman_col, check_single_boxes
             )
             
             if excel_buffer is not None and result_df is not None and csv_buffer is not None:
                 if output_format == "View on screen":
-                    # Display results on screen with the same formatting as the Excel/CSV
                     st.subheader("Container Number Comparison Report")
                     st.caption("Note: TOPS 'Container Number' = Cyman 'Unit No'")
                     st.caption(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     
-                    # Format the dataframe for display
                     display_df = format_for_display(result_df)
                     
-                    # Use CSS to style the dataframe similar to the Excel output
                     st.markdown("""
                     <style>
                     .dataframe th {
