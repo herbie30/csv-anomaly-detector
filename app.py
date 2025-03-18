@@ -183,20 +183,19 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
       - CYMAN: Focus on columns E (In Activity) and G (Unit No.)
     
     Filter Data:
-      - TOPS: Keep only rows where Unload Location (Column O) contains "JAMES KEMBALL HOLDING CENTER" 
-              (case-insensitive; allow minor typos)
+      - TOPS: Keep only rows where Unload Location (Column O) contains "JAMES KEMBALL HOLDING CENTER"
+              (case-insensitive; allow minor typos via a contains check)
       - CYMAN: Keep all rows
     
     Comparison Logic:
       For each row in the filtered TOPS data, check if the Container Number (Column H) exists in CYMAN’s Unit No. (Column G).
-      If it DOES NOT match, retain the row. If it matches, exclude the row.
+      If it DOES NOT match, retain the row.
     
     Output:
-      Return a table with the columns:
-        - TOPS Container Number
-        - CYMAN Unit No.
-        - TOPS Unload Location
-        - CYMAN In Activity
+      Return a table with two columns:
+        - TOPS
+        - Cyman
+      The table lists the container numbers in alphabetical order.
     """
     # Load spreadsheets
     try:
@@ -223,13 +222,12 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
 
     # Filter TOPS data:
     # Keep only rows where Unload Location (Column O) contains "JAMES KEMBALL HOLDING CENTER"
-    # Allow for minor typos by using a regex that accepts both "center" and "centre"
-    pattern = re.compile(r'james kemball holding cent(er|re)?', re.IGNORECASE)
-    tops_df_filtered = tops_df[tops_df["Unload Location"].astype(str).apply(lambda x: bool(pattern.search(x)))]
+    # Using a simpler contains check to allow minor typos
+    tops_df_filtered = tops_df[tops_df["Unload Location"].astype(str).str.strip().str.upper().str.contains("JAMES KEMBALL HOLDING", na=False)]
     
     if tops_df_filtered.empty:
         st.info("No TOPS rows meet the Unload Location criteria.")
-        empty_df = pd.DataFrame(columns=["TOPS Container Number", "CYMAN Unit No.", "TOPS Unload Location", "CYMAN In Activity"])
+        empty_df = pd.DataFrame(columns=["TOPS", "Cyman"])
         output_buffer = io.BytesIO()
         empty_df.to_excel(output_buffer, index=False)
         output_buffer.seek(0)
@@ -249,21 +247,21 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
     results = []
     for idx, row in tops_df_filtered.iterrows():
         container = row["Container Number"]
-        unload_location = row["Unload Location"]
         if container not in cyman_units:
             results.append({
-                "TOPS Container Number": container,
-                "CYMAN Unit No.": "Not Found",
-                "TOPS Unload Location": unload_location,
-                "CYMAN In Activity": "Not Found"
+                "TOPS": container,
+                "Cyman": "Not Found"
             })
 
-    # Create DataFrame from results
-    results_df = pd.DataFrame(results)
+    # Sort the results alphabetically by the TOPS container number
+    results = sorted(results, key=lambda x: x["TOPS"])
+
+    # Create DataFrame from results with only two columns: TOPS and Cyman
+    results_df = pd.DataFrame(results, columns=["TOPS", "Cyman"])
     
     if results_df.empty:
         st.info("All filtered TOPS container numbers have matching entries in CYMAN.")
-        empty_df = pd.DataFrame(columns=["TOPS Container Number", "CYMAN Unit No.", "TOPS Unload Location", "CYMAN In Activity"])
+        empty_df = pd.DataFrame(columns=["TOPS", "Cyman"])
         output_buffer = io.BytesIO()
         empty_df.to_excel(output_buffer, index=False)
         output_buffer.seek(0)
@@ -317,8 +315,8 @@ def main():
             
             if excel_buffer is not None and result_df is not None and csv_buffer is not None:
                 if output_format == "View on screen":
-                    st.subheader("Container Number Comparison Report")
-                    st.caption("Comparison based on prompt instructions:")
+                    st.subheader("Container Comparison Report")
+                    st.caption("Results based on prompt instructions:")
                     st.caption("TOPS: Columns A (Status Name), H (Container Number), O (Unload Location)")
                     st.caption("CYMAN: Columns E (In Activity), G (Unit No.)")
                     st.caption(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
