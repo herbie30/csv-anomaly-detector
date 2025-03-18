@@ -6,19 +6,7 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 import io
-
-# Dictionary of equivalent terms between TOPS and Cyman
-TERMINOLOGY_MAPPING = {
-    # Container related terms
-    "Container Number": "Unit No",
-    
-    # Location terms
-    "Unload Location": "In Activity",
-    
-    # Status terms
-    "Job Complete": "In Activity",
-    "In Progress": "MovementPre"
-}
+import csv
 
 def identify_container_column(df):
     """
@@ -172,10 +160,22 @@ def format_excel_workbook(wb, row_count):
     summary_cell.font = Font(bold=True)
     ws.merge_cells(f'A{summary_row}:C{summary_row}')
 
-def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=None, cyman_container_col=None):
+def format_for_display(results_df):
+    """
+    Format the results DataFrame for on-screen display with the same style as the Excel output.
+    """
+    # Create a copy of the dataframe for display
+    display_df = results_df.copy()
+    
+    # Replace values with symbols for display
+    display_df = display_df.replace({'Missing': '❌', 'Present': '✓'})
+    
+    return display_df
+
+def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=None, cyman_container_col=None, check_single_boxes=False):
     """
     Compare container numbers between TOPS and Cyman spreadsheets with enhanced logic.
-    Returns a BytesIO stream with the output Excel file.
+    Returns a BytesIO stream with the output Excel file and a DataFrame for display.
     """
     # Load spreadsheets
     try:
@@ -183,7 +183,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         cyman_df = pd.read_excel(cyman_file)
     except Exception as e:
         st.error(f"Error loading spreadsheets: {e}")
-        return None
+        return None, None
 
     # Identify columns in both spreadsheets
     tops_columns = identify_columns(tops_df, 'TOPS')
@@ -197,7 +197,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         else:
             st.error("Could not automatically detect container number column in TOPS. Available columns:")
             st.write(list(tops_df.columns))
-            return None
+            return None, None
 
     if cyman_container_col is None:
         cyman_container_col = cyman_columns.get('container_col')
@@ -206,7 +206,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         else:
             st.error("Could not automatically detect container number column in Cyman. Available columns:")
             st.write(list(cyman_df.columns))
-            return None
+            return None, None
             
     # Initialize columns for status and location/activity
     tops_status_col = tops_columns.get('status_col', None)
@@ -231,6 +231,14 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         tops_df[tops_container_col] = tops_df[tops_container_col].astype(str).str.strip()
         cyman_df[cyman_container_col] = cyman_df[cyman_container_col].astype(str).str.strip()
         
+        # Filter TOPS data to only include "Complete" or "In Progress" in Status Name column
+        # And only include "James Kemball Holding Centre" in Unload Location column
+        if tops_status_col:
+            tops_df = tops_df[tops_df[tops_status_col].astype(str).str.lower().isin(['complete', 'in progress'])]
+        
+        if tops_location_col:
+            tops_df = tops_df[tops_df[tops_location_col].astype(str).str.lower() == 'james kemball holding centre']
+        
         # Create dictionaries for faster lookups
         tops_containers = set(tops_df[tops_container_col])
         cyman_containers = set(cyman_df[cyman_container_col])
@@ -239,7 +247,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         cyman_data = {row[cyman_container_col]: row for _, row in cyman_df.iterrows()}
     except KeyError as e:
         st.error(f"Error: Column not found - {e}")
-        return None
+        return None, None
 
     # Process containers based on the enhanced requirements
     results = []
@@ -260,44 +268,44 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
             'TOPS': 'Missing'
         })
     
-    # Process containers that appear in both systems
-    for container in tops_containers.intersection(cyman_containers):
-        tops_row = tops_data[container]
-        cyman_row = cyman_data[container]
+    # Check for single boxes across both yards if option is selected
+    if check_single_boxes:
+        # Add logic to find containers that occur only once across both systems
+        # This is a simple implementation looking for unique container identifiers
+        all_containers = list(tops_containers) + list(cyman_containers)
+        from collections import Counter
+        container_counts = Counter(all_containers)
+        single_boxes = [container for container, count in container_counts.items() if count == 1]
         
-        # Skip if container has "James Kemball Holding Centre" in TOPS and "Standard" in Cyman
-        tops_location = str(tops_row.get(tops_location_col, "")) if tops_location_col else ""
-        cyman_activity = str(cyman_row.get(cyman_activity_col, "")) if cyman_activity_col else ""
-        tops_status = str(tops_row.get(tops_status_col, "")) if tops_status_col else ""
-        
-        # Skip matching containers with specified location/activity
-        if "james kemball holding centre" in tops_location.lower() and "standard" in cyman_activity.lower():
-            continue
-        
-        # Check for special case: "Standard" in Cyman and "In Progress" in TOPS
-        if "standard" in cyman_activity.lower() and "in progress" in tops_status.lower():
-            results.append({
-                'CONTAINER NUMBER': container,
-                'CYMAN': 'Present',
-                'TOPS': 'Missing'
-            })
-        # Otherwise, this is a mismatch to report
-        else:
-            results.append({
-                'CONTAINER NUMBER': container,
-                'CYMAN': 'Present',
-                'TOPS': 'Present'
-            })
-
+        for container in single_boxes:
+            # Check if it's not already in our results (which would mean it's missing from one system)
+            if container not in tops_containers and container not in cyman_containers:
+                if container in tops_containers:
+                    results.append({
+                        'CONTAINER NUMBER': container,
+                        'CYMAN': 'Missing',
+                        'TOPS': 'Present'
+                    })
+                else:
+                    results.append({
+                        'CONTAINER NUMBER': container,
+                        'CYMAN': 'Present',
+                        'TOPS': 'Missing'
+                    })
+    
+    # Sort the results alphabetically by container number
+    results.sort(key=lambda x: x['CONTAINER NUMBER'])
+    
+    # Create DataFrame from results
+    results_df = pd.DataFrame(results)
+    
     if not results:
         st.info("No mismatches found based on the specified criteria.")
         empty_df = pd.DataFrame(columns=['CONTAINER NUMBER', 'CYMAN', 'TOPS'])
         output_buffer = io.BytesIO()
         empty_df.to_excel(output_buffer, index=False)
         output_buffer.seek(0)
-        return output_buffer
-
-    results_df = pd.DataFrame(results)
+        return output_buffer, empty_df
 
     # Write results to an in-memory Excel file
     output_buffer = io.BytesIO()
@@ -309,7 +317,7 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
         wb = openpyxl.load_workbook(output_buffer)
     except Exception as e:
         st.error(f"Error processing workbook: {e}")
-        return None
+        return None, None
 
     # Apply formatting
     format_excel_workbook(wb, len(results_df))
@@ -318,21 +326,16 @@ def compare_container_spreadsheets(tops_file, cyman_file, tops_container_col=Non
     wb.save(final_buffer)
     final_buffer.seek(0)
 
-    st.success("Enhanced comparison complete!")
-    return final_buffer
+    # Create CSV buffer
+    csv_buffer = io.StringIO()
+    results_df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
 
-def display_terminology_mapping():
-    st.write("### Terminology Mapping between TOPS and Cyman:")
-    st.write("=" * 50)
-    for tops_term, cyman_term in TERMINOLOGY_MAPPING.items():
-        st.write(f"{tops_term:<25} {cyman_term:<25}")
-    st.write("=" * 50)
+    st.success("Comparison complete!")
+    return final_buffer, results_df, csv_buffer
 
 def main():
     st.title("Container Spreadsheet Comparison Tool")
-    st.write("This tool compares container numbers between TOPS and Cyman systems with enhanced logic.")
-
-    display_terminology_mapping()
 
     # Upload file widgets
     tops_file = st.file_uploader("Upload TOPS spreadsheet", type=["xlsx", "xls"])
@@ -346,19 +349,66 @@ def main():
     cyman_col = st.text_input("Cyman container column name (leave blank for auto-detection)")
     if cyman_col.strip() == "":
         cyman_col = None
+        
+    # Option to check for single boxes
+    check_single_boxes = st.checkbox("Check for single boxes across both yards")
+    
+    # Output format selection
+    output_format = st.radio("Select output format:", ["View on screen", "Download as Excel", "Download as CSV"])
 
-    if st.button("Run Enhanced Comparison"):
+    if st.button("Run Comparison"):
         if not tops_file or not cyman_file:
             st.error("Please upload both TOPS and Cyman spreadsheets.")
         else:
-            result_buffer = compare_container_spreadsheets(tops_file, cyman_file, tops_col, cyman_col)
-            if result_buffer:
-                st.download_button(
-                    label="Download Comparison Report",
-                    data=result_buffer,
-                    file_name="enhanced_container_comparison_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            result_buffer, result_df, csv_buffer = compare_container_spreadsheets(
+                tops_file, cyman_file, tops_col, cyman_col, check_single_boxes
+            )
+            
+            if result_buffer and result_df is not None:
+                if output_format == "View on screen":
+                    # Display results on screen with the same formatting as the Excel/CSV
+                    st.subheader("Container Number Comparison Report")
+                    st.caption("Note: TOPS 'Container Number' = Cyman 'Unit No'")
+                    st.caption(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    # Format the dataframe for display
+                    display_df = format_for_display(result_df)
+                    
+                    # Use CSS to style the dataframe similar to the Excel output
+                    st.markdown("""
+                    <style>
+                    .dataframe th {
+                        background-color: #1F4E78;
+                        color: white;
+                        text-align: center;
+                    }
+                    .dataframe td {
+                        text-align: center;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    st.dataframe(display_df)
+                    st.write(f"Total mismatches found: {len(result_df)}")
+                    
+                elif output_format == "Download as Excel":
+                    st.download_button(
+                        label="Download Comparison Report (Excel)",
+                        data=result_buffer,
+                        file_name="container_comparison_report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    
+                elif output_format == "Download as CSV":
+                    st.download_button(
+                        label="Download Comparison Report (CSV)",
+                        data=csv_buffer.getvalue(),
+                        file_name="container_comparison_report.csv",
+                        mime="text/csv"
+                    )
 
 if __name__ == "__main__":
     main()
+Last edited 1 minute ago
+
+
